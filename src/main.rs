@@ -39,13 +39,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
     let addr = format!("{}:{}", ip_addr, port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
-    // tokio::spawn(async move {
-    //     loop {
-    //         if let Ok(msg) = rx.recv().await {
-    //             println!("Broadcasting message: {:?}", msg);
-    //         }
-    //     }
-    // });
+    tokio::spawn(async move {
+        loop {
+            if let Ok(msg) = rx.recv().await {
+                println!("Broadcasting message: {:?}", msg);
+            }
+        }
+    });
 
     println!("Listening on: {}", addr);
     axum::serve(listener, app).await?;
