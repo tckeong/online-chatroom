@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import styles from "./styles/call";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
     faMicrophone,
@@ -10,38 +9,186 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import Cookies from "js-cookie";
 import { backendWsUrl } from "./components/apiEndpoint";
+import { useNavigate } from "react-router-dom";
+
+export interface CallMessage {
+    from: string;
+    to: string;
+    payload: string;
+    type: string;
+}
 
 function Call() {
     const url = new URL(window.location.href);
-    const user = url.searchParams.get("user") ?? "";
+    const toUser = url.searchParams.get("user") ?? "";
     const self = Cookies.get("user") ?? "";
-    const ws = useRef<WebSocket | null>(null);
+    const navigate = useNavigate();
 
-    const localVideoRef = useRef(null);
-    const remoteVideoRef = useRef(null);
-    const peerConnection = useRef<RTCPeerConnection | null>(null);
+    const server = {
+        iceServers: [
+            {
+                urls: [
+                    "stun:stun.l.google.com:19302",
+                    "stun:stun1.l.google.com:19302",
+                    "stun:stun2.l.google.com:19302",
+                ],
+            },
+        ],
+    };
+
+    const ws = useRef<WebSocket>(
+        new WebSocket(`${backendWsUrl}/call?user=${encodeURIComponent(self)}`)
+    );
+    const peerConnection = useRef<RTCPeerConnection>(
+        new RTCPeerConnection(server)
+    );
+    const localVideoRef = useRef<HTMLVideoElement | null>(null);
+    const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+    const [isWsConnected, setIsWsConnected] = useState<boolean>(false);
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-    const [isInCall, setIsInCall] = useState<boolean>(false);
+    const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
     const [isMuted, setIsMuted] = useState<boolean>(false);
     const [isCameraOff, setIsCameraOff] = useState<boolean>(false);
 
     useEffect(() => {
-        if (user && self) {
-            ws.current = new WebSocket(
-                `${backendWsUrl}/call?user=${encodeURIComponent(user)}`
-            );
+        ws.current.onopen = () => {
+            setIsWsConnected(true);
+        };
+        ws.current.onerror = (error) =>
+            console.error("WebSocket error:", error);
+        ws.current.onclose = () => {
+            setIsWsConnected(false);
+            console.log("WebSocket closed");
+        };
 
-            if (ws.current.readyState === WebSocket.OPEN) {
+        ws.current.onmessage = async (event) => {
+            const message: CallMessage = JSON.parse(event.data) as CallMessage;
+
+            switch (message.type) {
+                case "offer": {
+                    const offer = JSON.parse(message.payload);
+                    await peerConnection.current.setRemoteDescription(offer);
+                    const answer = await peerConnection.current.createAnswer();
+                    await peerConnection.current.setLocalDescription(answer);
+                    ws.current.send(
+                        JSON.stringify({
+                            from: self,
+                            to: toUser,
+                            type: "answer",
+                            payload: JSON.stringify(answer),
+                        })
+                    );
+                    break;
+                }
+                case "candidates": {
+                    const candidate = JSON.parse(message.payload);
+                    await peerConnection.current.addIceCandidate(candidate);
+                    break;
+                }
+                case "answer": {
+                    const remoteAnswer = JSON.parse(message.payload);
+                    await peerConnection.current.setRemoteDescription(
+                        remoteAnswer
+                    );
+                    break;
+                }
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        navigator.mediaDevices
+            .getUserMedia({ video: true, audio: true })
+            .then((stream) => {
+                setLocalStream(stream);
+                if (localVideoRef.current) {
+                    localVideoRef.current.srcObject = stream;
+                }
+                stream.getTracks().forEach((track) => {
+                    peerConnection.current?.addTrack(track, stream);
+                });
+            })
+            .catch((err) =>
+                console.error("Error accessing media devices:", err)
+            );
+    }, []);
+
+    useEffect(() => {
+        if (!peerConnection.current) return;
+
+        peerConnection.current.ontrack = (event) => {
+            setRemoteStream(event.streams[0]);
+            if (remoteVideoRef.current) {
+                remoteVideoRef.current.srcObject = event.streams[0];
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!toUser || !self || !localStream) return;
+        if (!isWsConnected) return;
+
+        peerConnection.current.onicecandidate = (event) => {
+            if (event.candidate) {
                 ws.current.send(
                     JSON.stringify({
                         from: self,
-                        to: user,
-                        content: "offer",
+                        to: toUser,
+                        type: "candidates",
+                        payload: JSON.stringify(event.candidate),
                     })
                 );
             }
+        };
+
+        peerConnection.current.createOffer().then((offer) => {
+            peerConnection.current.setLocalDescription(offer);
+            ws.current.send(
+                JSON.stringify({
+                    from: self,
+                    to: toUser,
+                    type: "offer",
+                    payload: JSON.stringify(offer),
+                })
+            );
+        });
+    }, [isWsConnected, self, toUser, localStream]);
+
+    useEffect(() => {
+        if (!localStream) return;
+
+        if (isMuted) {
+            localStream
+                .getAudioTracks()
+                .forEach((track) => (track.enabled = false));
+        } else {
+            localStream
+                .getAudioTracks()
+                .forEach((track) => (track.enabled = true));
         }
-    }, []);
+    }, [isMuted, localStream]);
+
+    useEffect(() => {
+        if (!localStream) return;
+
+        if (isCameraOff) {
+            localStream
+                .getVideoTracks()
+                .forEach((track) => (track.enabled = false));
+        } else {
+            localStream
+                .getVideoTracks()
+                .forEach((track) => (track.enabled = true));
+        }
+    }, [isCameraOff, localStream]);
+
+    const handleCallEnd = () => {
+        alert("Call ended");
+        ws.current.close();
+        peerConnection.current.close();
+        localStream?.getTracks().forEach((track) => track.stop());
+        navigate("/");
+    };
 
     return (
         <div className="flex flex-col h-full w-full bg-gray-300">
@@ -93,7 +240,10 @@ function Call() {
                         <FontAwesomeIcon icon={faVideo} size="2x" />
                     </button>
                 )}
-                <button className="w-fit h-fit lg:border-2 lg:border-black lg:p-6 lg:px-6 rounded-full m-3 text-red-600 hover:bg-red-700 hover:text-white">
+                <button
+                    className="w-fit h-fit lg:border-2 lg:border-black lg:p-6 lg:px-6 rounded-full m-3 text-red-600 hover:bg-red-700 hover:text-white"
+                    onClick={handleCallEnd}
+                >
                     <FontAwesomeIcon icon={faPhone} size="2x" />
                 </button>
             </div>

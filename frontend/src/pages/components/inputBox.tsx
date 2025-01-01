@@ -9,10 +9,11 @@ import { useNavigate } from "react-router-dom";
 interface InputBoxProps {
     position: string;
     msgWs: React.MutableRefObject<WebSocket | null>;
+    callWs: React.MutableRefObject<WebSocket | null>;
     user: string | undefined;
 }
 
-function InputBox({ position, msgWs, user }: InputBoxProps) {
+function InputBox({ position, msgWs, callWs, user }: InputBoxProps) {
     const className = `grid grid-cols-5 pl-5 lg:pl-8 ${position}`;
     const [message, setMessage] = useState<string>("");
     const [name, setName] = useState<string>("");
@@ -32,7 +33,7 @@ function InputBox({ position, msgWs, user }: InputBoxProps) {
         }
 
         return true;
-    }
+    };
 
     const checkNameState = () => {
         if (!name) {
@@ -41,16 +42,20 @@ function InputBox({ position, msgWs, user }: InputBoxProps) {
         }
 
         return true;
-    }
+    };
 
     const handleSendClick = (event: React.MouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
 
         if (!checkLoginState() || !checkNameState()) {
-            return ;
+            return;
         }
 
-        if (user && msgWs.current && msgWs.current.readyState === WebSocket.OPEN) {
+        if (
+            user &&
+            msgWs.current &&
+            msgWs.current.readyState === WebSocket.OPEN
+        ) {
             msgWs.current.send(
                 JSON.stringify({
                     from: user,
@@ -58,6 +63,9 @@ function InputBox({ position, msgWs, user }: InputBoxProps) {
                     to: name,
                 })
             );
+        } else {
+            alert("Failed to send message.");
+            return;
         }
 
         setName("");
@@ -68,9 +76,10 @@ function InputBox({ position, msgWs, user }: InputBoxProps) {
         event.preventDefault();
 
         if (!checkLoginState() || !checkNameState()) {
-            return ;
+            return;
         }
-        
+
+        callWs.current?.close();
         navigate(`/call?user=${name}`);
         setName("");
     };

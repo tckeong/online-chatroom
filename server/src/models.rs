@@ -61,7 +61,7 @@ impl From<MessageRecv> for MessageSend {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CallResponse {
+pub struct CallMessage {
     #[serde(rename = "type")]
     pub call_type: String,
     pub payload: String,

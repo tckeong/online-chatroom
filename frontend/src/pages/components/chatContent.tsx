@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import Cookies from "js-cookie";
 import { backendUrl, backendWsUrl } from "./apiEndpoint";
 import { useNavigate } from "react-router-dom";
+import { CallMessage } from "../call";
 
 export interface Message {
     username: string;
@@ -45,8 +46,11 @@ function ChatContent() {
             };
 
             callSocketRef.current.onmessage = (event) => {
-                const message = JSON.parse(event.data) as Message;
-                naviagate(`/acceptCall?offer=${message.content}&user=${message.username}`);
+                const message = JSON.parse(event.data) as CallMessage;
+                if (message.type === "offer") {
+                    callSocketRef.current?.close();
+                    naviagate(`/acceptCall?offer=${message.payload}&user=${message.from}`);
+                }
             };
 
             // Clean up on component unmount
@@ -64,6 +68,7 @@ function ChatContent() {
             <InputBox
                 position="row-start-8 row-end-9"
                 msgWs={msgSocketRef}
+                callWs={callSocketRef}
                 user={user}
             />
         </div>

@@ -11,7 +11,7 @@ use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use crate::handlers::AppState;
 
-use crate::models::{CallResponse, MessageRecv, MessageSend};
+use crate::models::{CallMessage, MessageRecv, MessageSend};
 
 #[derive(Deserialize)]
 pub(crate) struct Params {
@@ -72,28 +72,18 @@ pub(crate) async fn call_handler (
     State(state): State<Arc<AppState>>,
     Query(user): Query<Params>
 ) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_call(socket, state, user.name)
-    )
+    ws.on_upgrade(|socket| handle_call(socket, state, user.name))
 }
 
 async fn handle_call(socket: WebSocket, state: Arc<AppState>, username: String) {
     let (mut sender, mut receiver) = socket.split();
-    let state_clone = state.clone();
+    let mut rx = state.call_tx.subscribe();
 
     // Task to send messages to the WebSocket
     let mut send_task = tokio::spawn(async move {
-        loop {
-            if let Some(call) = state_clone.get_call(username.clone()) {
-                match serde_json::to_string(&call) {
-                    Ok(msg) => {
-                        if sender.send(Message::Text(msg)).await.is_err() {
-                            break;
-                        }
-                    },
-                    Err(e) => {
-                        eprintln!("Error serializing message: {:?}", e);
-                    }
-                }
+        while let Ok(msg) = rx.recv().await {
+            if msg.to == username {
+                sender.send(Message::Text(serde_json::to_string(&msg).unwrap())).await.unwrap();
             }
         }
     });
@@ -102,9 +92,10 @@ async fn handle_call(socket: WebSocket, state: Arc<AppState>, username: String) 
     let tx = state.call_tx.clone();
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(Message::Text(text))) = receiver.next().await {
-            if let Ok(msg) = serde_json::from_str::<CallResponse>(&text) {
-                state.add_call(msg.clone());
+            if let Ok(msg) = serde_json::from_str::<CallMessage>(&text) {
                 let _ = tx.send(msg);
+            } else {
+                eprintln!("Error parsing call message");
             }
         }
     });

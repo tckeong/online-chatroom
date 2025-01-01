@@ -5,7 +5,7 @@ use axum::Json;
 use axum::response::IntoResponse;
 use serde_json::json;
 use tokio::sync::broadcast;
-use crate::models::{CallResponse, LoginUser, MessageRecv, User};
+use crate::models::{CallMessage, LoginUser, MessageRecv, User};
 use crate::db::{DBConnection, DBError};
 use crate::handlers::ws_handler::Params;
 
@@ -14,32 +14,16 @@ pub(crate) mod ws_handler;
 // Shared state
 pub struct AppState {
     message_tx: broadcast::Sender<MessageRecv>,
-    pub call_tx: broadcast::Sender<CallResponse>,
+    pub call_tx: broadcast::Sender<CallMessage>,
     users: Mutex<HashSet<String>>,
-    calls: Mutex<HashMap<String, CallResponse>>,
 }
 
 impl AppState {
-    pub fn new(message_tx: broadcast::Sender<MessageRecv>, call_tx: broadcast::Sender<CallResponse>) -> Self {
+    pub fn new(message_tx: broadcast::Sender<MessageRecv>, call_tx: broadcast::Sender<CallMessage>) -> Self {
         Self {
             message_tx,
             call_tx,
             users: Mutex::new(HashSet::from(["all".to_string()])),
-            calls: Mutex::new(HashMap::new()),
-        }
-    }
-
-    pub fn add_call(&self, call: CallResponse) {
-        self.calls.lock().unwrap().insert(call.clone().to, call);
-    }
-
-    pub fn get_call(&self, name: String) -> Option<CallResponse> {
-        if let Some(call) = self.calls.lock().unwrap().get(&name) {
-            let call = call.clone();
-            self.calls.lock().unwrap().remove(&name);
-            Some(call)
-        } else {
-            None
         }
     }
 }

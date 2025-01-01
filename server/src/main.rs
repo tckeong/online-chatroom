@@ -15,12 +15,12 @@ mod db;
 mod schema;
 
 use handlers::{ws_handler};
-use crate::models::{CallResponse, MessageRecv};
+use crate::models::{CallMessage, MessageRecv};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>>{
     let (message_tx, mut message_rx) = broadcast::channel::<MessageRecv>(100);
-    let (call_tx, mut call_rx) = broadcast::channel::<CallResponse>(100);
+    let (call_tx, mut call_rx) = broadcast::channel::<CallMessage>(100);
     let app_state = Arc::new(handlers::AppState::new(message_tx, call_tx));
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST])
