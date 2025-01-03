@@ -72,14 +72,17 @@ function InputBox({ position, msgWs, callWs, user }: InputBoxProps) {
         setMessage("");
     };
 
-    const handleCallClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    const handleCallClick = async (
+        event: React.MouseEvent<HTMLButtonElement>
+    ) => {
         event.preventDefault();
 
         if (!checkLoginState() || !checkNameState()) {
             return;
         }
 
-        callWs.current?.close();
+        await msgWs.current?.close();
+        await callWs.current?.close();
         navigate(`/call?user=${name}`);
         setName("");
     };

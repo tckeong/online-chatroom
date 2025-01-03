@@ -43,10 +43,8 @@ function Call() {
         new RTCPeerConnection(server)
     );
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
-    const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
     const [isWsConnected, setIsWsConnected] = useState<boolean>(false);
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-    const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
     const [isMuted, setIsMuted] = useState<boolean>(false);
     const [isCameraOff, setIsCameraOff] = useState<boolean>(false);
 
@@ -65,28 +63,17 @@ function Call() {
             const message: CallMessage = JSON.parse(event.data) as CallMessage;
 
             switch (message.type) {
-                case "offer": {
-                    const offer = JSON.parse(message.payload);
-                    await peerConnection.current.setRemoteDescription(offer);
-                    const answer = await peerConnection.current.createAnswer();
-                    await peerConnection.current.setLocalDescription(answer);
-                    ws.current.send(
-                        JSON.stringify({
-                            from: self,
-                            to: toUser,
-                            type: "answer",
-                            payload: JSON.stringify(answer),
-                        })
-                    );
-                    break;
-                }
                 case "candidates": {
-                    const candidate = JSON.parse(message.payload);
+                    const candidate = JSON.parse(
+                        message.payload
+                    ) as RTCIceCandidate;
                     await peerConnection.current.addIceCandidate(candidate);
                     break;
                 }
                 case "answer": {
-                    const remoteAnswer = JSON.parse(message.payload);
+                    const remoteAnswer = JSON.parse(
+                        message.payload
+                    ) as RTCSessionDescription;
                     await peerConnection.current.setRemoteDescription(
                         remoteAnswer
                     );
@@ -114,17 +101,6 @@ function Call() {
     }, []);
 
     useEffect(() => {
-        if (!peerConnection.current) return;
-
-        peerConnection.current.ontrack = (event) => {
-            setRemoteStream(event.streams[0]);
-            if (remoteVideoRef.current) {
-                remoteVideoRef.current.srcObject = event.streams[0];
-            }
-        };
-    }, []);
-
-    useEffect(() => {
         if (!toUser || !self || !localStream) return;
         if (!isWsConnected) return;
 
@@ -141,17 +117,23 @@ function Call() {
             }
         };
 
-        peerConnection.current.createOffer().then((offer) => {
-            peerConnection.current.setLocalDescription(offer);
-            ws.current.send(
-                JSON.stringify({
-                    from: self,
-                    to: toUser,
-                    type: "offer",
-                    payload: JSON.stringify(offer),
-                })
-            );
-        });
+        peerConnection.current
+            .createOffer()
+            .then((offer) => {
+                return peerConnection.current.setLocalDescription(offer);
+            })
+            .then(() => {
+                ws.current.send(
+                    JSON.stringify({
+                        from: self,
+                        to: toUser,
+                        type: "offer",
+                        payload: JSON.stringify(
+                            peerConnection.current.localDescription
+                        ),
+                    })
+                );
+            });
     }, [isWsConnected, self, toUser, localStream]);
 
     useEffect(() => {
@@ -193,13 +175,7 @@ function Call() {
     return (
         <div className="flex flex-col h-full w-full bg-gray-300">
             <div className="flex flex-row h-full w-full basis-4/5">
-                <div className="basis-3/4 h-full w-full">
-                    <video
-                        ref={remoteVideoRef}
-                        autoPlay
-                        className="basis-5/6 m-6"
-                    />
-                </div>
+                <div className="basis-3/4 h-full w-full"></div>
                 <div className="flex flex-col basis-1/4 h-full w-full">
                     <video
                         ref={localVideoRef}

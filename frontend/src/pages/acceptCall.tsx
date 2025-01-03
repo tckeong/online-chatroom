@@ -8,6 +8,9 @@ const AcceptCall = () => {
     const offer = url.searchParams.get("offer") ?? "";
     const fromUser = url.searchParams.get("user") ?? "";
     const self = Cookies.get("user") ?? "";
+    const [isSetup, setIsSetup] = useState<boolean>(false);
+
+    const candidatesBuffer = useRef<RTCIceCandidate[]>([]);
 
     const server = {
         iceServers: [
@@ -21,44 +24,120 @@ const AcceptCall = () => {
         ],
     };
 
-    const ws = useRef<WebSocket>(
-        new WebSocket(`${backendWsUrl}/call?user=${encodeURIComponent(self)}`)
-    );
-    const peerConnection = useRef<RTCPeerConnection>(
-        new RTCPeerConnection(server)
-    );
-    const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-    const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+    const ws = useRef<WebSocket | null>(null);
+    const peerConnection = useRef<RTCPeerConnection | null>(null);
+    // const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+    const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+
+    useEffect(() => {
+        peerConnection.current = new RTCPeerConnection(server);
+        // Create a new MediaStream for remote video
+        const stream = new MediaStream();
+
+        // Attach the stream to the video element
+        if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = stream;
+        }
+
+        // Handle the 'ontrack' event
+        peerConnection.current.ontrack = (event) => {
+            // Add tracks to the remote MediaStream
+            event.streams[0].getTracks().forEach((track) => {
+                stream.addTrack(track);
+            });
+        };
+
+        setIsSetup(true);
+    }, [self]);
 
     useEffect(() => {
         if (!self) return;
+        if (!peerConnection.current) return;
+
+        ws.current = new WebSocket(
+            `${backendWsUrl}/call?user=${encodeURIComponent(self)}`
+        );
+
+        ws.current.onopen = async () => {
+            await peerConnection.current?.setRemoteDescription(
+                JSON.parse(offer) as RTCSessionDescriptionInit
+            );
+            const answer = await peerConnection.current?.createAnswer();
+            await peerConnection.current?.setLocalDescription(answer);
+            ws.current?.send(
+                JSON.stringify({
+                    from: self,
+                    to: fromUser,
+                    type: "answer",
+                    payload: JSON.stringify(
+                        peerConnection.current?.localDescription
+                    ),
+                })
+            );
+
+            // Add buffered candidates
+            candidatesBuffer.current.forEach(async (candidate) => {
+                try {
+                    await peerConnection.current?.addIceCandidate(candidate);
+                } catch (error) {
+                    console.error(
+                        "Error adding buffered ICE candidate:",
+                        error
+                    );
+                }
+            });
+            candidatesBuffer.current.length = 0; // Clear the buffer
+        };
+
+        peerConnection.current.onicecandidate = (event) => {
+            if (event.candidate) {
+                ws.current?.send(
+                    JSON.stringify({
+                        from: self,
+                        to: fromUser,
+                        type: "candidates",
+                        payload: JSON.stringify(event.candidate),
+                    })
+                );
+            }
+        };
+
+        ws.current.onerror = (error) =>
+            console.error("WebSocket error:", error);
+
+        ws.current.onclose = () => {
+            console.log("WebSocket closed");
+        };
 
         ws.current.onmessage = async (event) => {
-            const message = JSON.parse(event.data);
-            console.log(message);
-            const offer = JSON.parse(message.payload);
-            //                 await peerConnection.current.setRemoteDescription(
-            //                     offer
-            //                 );
-            //                 const answer =
-            //                     await peerConnection.current.createAnswer();
-            //                 await peerConnection.current.setLocalDescription(
-            //                     answer
-            //                 );
-            //                 ws.current.send(
-            //                     JSON.stringify({
-            //                         from: self,
-            //                         to: toUser,
-            //                         type: "answer",
-            //                         payload: JSON.stringify(answer),
-            //                     })
-            //                 );
-            //                 break;
+            const message: CallMessage = JSON.parse(event.data) as CallMessage;
+
+            switch (message.type) {
+                case "candidates": {
+                    const candidate = JSON.parse(message.payload);
+                    if (peerConnection.current?.remoteDescription) {
+                        try {
+                            await peerConnection.current.addIceCandidate(
+                                candidate
+                            );
+                        } catch (error) {
+                            console.error("Error adding ICE candidate:", error);
+                        }
+                    } else {
+                        console.warn(
+                            "Remote description not set. Buffering candidate."
+                        );
+                        candidatesBuffer.current.push(candidate);
+                    }
+                    break;
+                }
+            }
         };
-    }, [self]);
+    }, [isSetup]);
 
     return (
         <div>
+            <video ref={remoteVideoRef} autoPlay playsInline />
             <h1>Accept Call</h1>
         </div>
     );

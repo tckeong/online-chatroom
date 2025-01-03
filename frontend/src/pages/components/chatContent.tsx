@@ -40,16 +40,25 @@ function ChatContent() {
                 `${backendWsUrl}/call?user=${encodeURIComponent(user)}`
             );
 
+            callSocketRef.current.onclose = () => {
+                console.log("Call WebSocket closed");
+            };
+
             msgSocketRef.current.onmessage = (event) => {
                 const message = JSON.parse(event.data) as Message;
                 setMessages((prevMessages) => [...prevMessages, message]);
             };
 
-            callSocketRef.current.onmessage = (event) => {
+            callSocketRef.current.onmessage = async (event) => {
                 const message = JSON.parse(event.data) as CallMessage;
                 if (message.type === "offer") {
-                    callSocketRef.current?.close();
-                    naviagate(`/acceptCall?offer=${message.payload}&user=${message.from}`);
+                    await callSocketRef.current?.close();
+                    console.log(message.payload);
+                    naviagate(
+                        `/acceptCall?offer=${encodeURIComponent(
+                            message.payload
+                        )}&user=${encodeURIComponent(message.from)}`
+                    );
                 }
             };
 
