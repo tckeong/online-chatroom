@@ -85,7 +85,7 @@ function Call() {
 
     useEffect(() => {
         navigator.mediaDevices
-            .getUserMedia({ video: true, audio: true })
+            .getUserMedia({ video: true })
             .then((stream) => {
                 setLocalStream(stream);
                 if (localVideoRef.current) {

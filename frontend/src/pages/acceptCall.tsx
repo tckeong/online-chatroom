@@ -59,21 +59,40 @@ const AcceptCall = () => {
         );
 
         ws.current.onopen = async () => {
-            await peerConnection.current?.setRemoteDescription(
-                JSON.parse(offer) as RTCSessionDescriptionInit
-            );
-            const answer = await peerConnection.current?.createAnswer();
-            await peerConnection.current?.setLocalDescription(answer);
-            ws.current?.send(
-                JSON.stringify({
-                    from: self,
-                    to: fromUser,
-                    type: "answer",
-                    payload: JSON.stringify(
-                        peerConnection.current?.localDescription
-                    ),
+            peerConnection.current
+                ?.setRemoteDescription(
+                    JSON.parse(offer) as RTCSessionDescriptionInit
+                )
+                .then(() => {
+                    return peerConnection.current?.createAnswer();
                 })
-            );
+                .then((answer) => {
+                    return peerConnection.current?.setLocalDescription(answer);
+                })
+                .then(() => {
+                    ws.current?.send(
+                        JSON.stringify({
+                            from: self,
+                            to: fromUser,
+                            type: "answer",
+                            payload: JSON.stringify(
+                                peerConnection.current?.localDescription
+                            ),
+                        })
+                    );
+                });
+            // const answer = await peerConnection.current?.createAnswer();
+            // await peerConnection.current?.setLocalDescription(answer);
+            // ws.current?.send(
+            //     JSON.stringify({
+            //         from: self,
+            //         to: fromUser,
+            //         type: "answer",
+            //         payload: JSON.stringify(
+            //             peerConnection.current?.localDescription
+            //         ),
+            //     })
+            // );
 
             // Add buffered candidates
             candidatesBuffer.current.forEach(async (candidate) => {
