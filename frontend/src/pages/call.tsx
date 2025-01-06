@@ -8,8 +8,8 @@ import {
     faVideoSlash,
 } from "@fortawesome/free-solid-svg-icons";
 import Cookies from "js-cookie";
-import { backendWsUrl } from "./components/apiEndpoint";
 import { useNavigate } from "react-router-dom";
+import { useConn } from "../useConn";
 
 export interface CallMessage {
     from: string;
@@ -23,43 +23,23 @@ function Call() {
     const toUser = url.searchParams.get("user") ?? "";
     const self = Cookies.get("user") ?? "";
     const navigate = useNavigate();
+    const { msgSocket, callSocket, peerConnection } = useConn();
 
-    const server = {
-        iceServers: [
-            {
-                urls: [
-                    "stun:stun.l.google.com:19302",
-                    "stun:stun1.l.google.com:19302",
-                    "stun:stun2.l.google.com:19302",
-                ],
-            },
-        ],
-    };
-
-    const ws = useRef<WebSocket>(
-        new WebSocket(`${backendWsUrl}/call?user=${encodeURIComponent(self)}`)
-    );
-    const peerConnection = useRef<RTCPeerConnection>(
-        new RTCPeerConnection(server)
-    );
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
-    const [isWsConnected, setIsWsConnected] = useState<boolean>(false);
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [isMuted, setIsMuted] = useState<boolean>(false);
     const [isCameraOff, setIsCameraOff] = useState<boolean>(false);
 
     useEffect(() => {
-        ws.current.onopen = () => {
-            setIsWsConnected(true);
-        };
-        ws.current.onerror = (error) =>
+        if (!callSocket) return;
+
+        callSocket.onerror = (error) =>
             console.error("WebSocket error:", error);
-        ws.current.onclose = () => {
-            setIsWsConnected(false);
+        callSocket.onclose = () => {
             console.log("WebSocket closed");
         };
 
-        ws.current.onmessage = async (event) => {
+        callSocket.onmessage = async (event) => {
             const message: CallMessage = JSON.parse(event.data) as CallMessage;
 
             switch (message.type) {
@@ -67,46 +47,44 @@ function Call() {
                     const candidate = JSON.parse(
                         message.payload
                     ) as RTCIceCandidate;
-                    await peerConnection.current.addIceCandidate(candidate);
+                    await peerConnection?.addIceCandidate(candidate);
                     break;
                 }
                 case "answer": {
                     const remoteAnswer = JSON.parse(
                         message.payload
                     ) as RTCSessionDescription;
-                    await peerConnection.current.setRemoteDescription(
-                        remoteAnswer
-                    );
+                    await peerConnection?.setRemoteDescription(remoteAnswer);
                     break;
                 }
             }
         };
-    }, []);
+    }, [callSocket, peerConnection]);
 
     useEffect(() => {
         navigator.mediaDevices
-            .getUserMedia({ video: true })
+            .getUserMedia({ video: true, audio: true })
             .then((stream) => {
                 setLocalStream(stream);
                 if (localVideoRef.current) {
                     localVideoRef.current.srcObject = stream;
                 }
                 stream.getTracks().forEach((track) => {
-                    peerConnection.current?.addTrack(track, stream);
+                    peerConnection?.addTrack(track, stream);
                 });
             })
             .catch((err) =>
                 console.error("Error accessing media devices:", err)
             );
-    }, []);
+    }, [peerConnection]);
 
     useEffect(() => {
         if (!toUser || !self || !localStream) return;
-        if (!isWsConnected) return;
+        if (!peerConnection) return;
 
-        peerConnection.current.onicecandidate = (event) => {
+        peerConnection.onicecandidate = (event) => {
             if (event.candidate) {
-                ws.current.send(
+                callSocket?.send(
                     JSON.stringify({
                         from: self,
                         to: toUser,
@@ -117,24 +95,24 @@ function Call() {
             }
         };
 
-        peerConnection.current
+        peerConnection
             .createOffer()
             .then((offer) => {
-                return peerConnection.current.setLocalDescription(offer);
+                return peerConnection.setLocalDescription(offer);
             })
             .then(() => {
-                ws.current.send(
+                callSocket?.send(
                     JSON.stringify({
                         from: self,
                         to: toUser,
                         type: "offer",
                         payload: JSON.stringify(
-                            peerConnection.current.localDescription
+                            peerConnection.localDescription
                         ),
                     })
                 );
             });
-    }, [isWsConnected, self, toUser, localStream]);
+    }, [self, toUser, localStream, callSocket, peerConnection, msgSocket]);
 
     useEffect(() => {
         if (!localStream) return;
@@ -165,9 +143,15 @@ function Call() {
     }, [isCameraOff, localStream]);
 
     const handleCallEnd = () => {
+        callSocket?.send(
+            JSON.stringify({
+                from: self,
+                to: toUser,
+                type: "end",
+                payload: "",
+            })
+        );
         alert("Call ended");
-        ws.current.close();
-        peerConnection.current.close();
         localStream?.getTracks().forEach((track) => track.stop());
         navigate("/");
     };

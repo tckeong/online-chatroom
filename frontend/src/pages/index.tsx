@@ -4,44 +4,30 @@ import styles from "./styles/index";
 import Cookies from "js-cookie";
 import UserButton from "./components/userButton";
 import { useEffect } from "react";
-import { useDispatch, useSelector } from "react-redux";
-import {
-    setMsgWebSocket,
-    setCallWebSocket,
-    setPeerConnection,
-    addRemoteCandidate,
-} from "../reduxState/webSocketWebrtcSlice";
-import { RootState, AppDispatch } from "../reduxState/store";
-import { backendWsUrl } from "./components/apiEndpoint";
+import { backendUrl } from "./components/apiEndpoint";
 
-function Index() {
+interface IndexProps {
+    setCookieUser: (user: string) => void;
+}
+
+function Index({ setCookieUser }: IndexProps) {
     const user = Cookies.get("user");
     const isLogin = user !== undefined;
     const navigate = useNavigate();
-    const dispatch = useDispatch<AppDispatch>();
-    const { msgWs, callWs, peerConnection, remoteCandidates } = useSelector(
-        (state: RootState) => state.webSocketWebRTC
-    );
 
     useEffect(() => {
-        if (!isLogin) return;
+        setCookieUser(Cookies.get("user") ?? "");
+        const handleBeforeUnload = async () => {
+            if (isLogin) {
+                Cookies.remove("user");
+                await fetch(
+                    `${backendUrl}/logout?user=${encodeURIComponent(user)}`
+                );
+            }
+        };
 
-        const msgSocket = new WebSocket(`${backendWsUrl}/ws?user=${encodeURIComponent(user)}`);
-        const callSocket = new WebSocket(`${backendWsUrl}/call?user=${encodeURIComponent(user)}`);
-
-        msgSocket.onopen = () => {
-            console.log("Message WebSocket connected");
-        };
-        msgSocket.onclose = () => {
-            console.log("Message WebSocket closed");
-        };
-        msgSocket.onerror = (error) => {
-            console.error("Message WebSocket error:", error);
-        };
-        msgSocket.onmessage = (event) => {
-            
-        };
-    }, [isLogin]);
+        window.addEventListener("beforeunload", handleBeforeUnload);
+    }, [isLogin, user, setCookieUser]);
 
     return (
         <div className="grid grid-rows-6 w-full h-full bg-gray-200 overflow-hidden">

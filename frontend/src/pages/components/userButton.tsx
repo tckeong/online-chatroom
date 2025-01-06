@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import styles from "./styles/userButton";
 import { useNavigate } from "react-router-dom";
 import { backendUrl } from "./apiEndpoint";
+import { useConn } from "../../useConn";
 
 interface UserButtonProps {
     position: string;
@@ -17,6 +18,7 @@ function UserButton({ position }: UserButtonProps) {
     const dropDownRef = useRef<HTMLDivElement>(null);
     const buttonRef = useRef<HTMLButtonElement>(null);
     const navigate = useNavigate();
+    const { msgSocket, callSocket, peerConnection } = useConn();
 
     const handleClickOutside = (event: MouseEvent) => {
         if (
@@ -37,11 +39,16 @@ function UserButton({ position }: UserButtonProps) {
         };
     }, []);
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
         if (user) {
-            fetch(`${backendUrl}/logout?user=${encodeURIComponent(user)}`);
+            await fetch(
+                `${backendUrl}/logout?user=${encodeURIComponent(user)}`
+            );
             Cookies.remove("user");
             alert("Logout successful!");
+            msgSocket?.close();
+            callSocket?.close();
+            peerConnection?.close();
             navigate("/");
         }
     };

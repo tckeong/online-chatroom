@@ -1,19 +1,18 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useState } from "react";
 import SearchDropUp from "./searchDropUp";
 import styles from "./styles/inputBox";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPhone } from "@fortawesome/free-solid-svg-icons";
 import { useNavigate } from "react-router-dom";
+import { useConn } from "../../useConn";
 
 interface InputBoxProps {
     position: string;
-    msgWs: React.MutableRefObject<WebSocket | null>;
-    callWs: React.MutableRefObject<WebSocket | null>;
     user: string | undefined;
 }
 
-function InputBox({ position, msgWs, callWs, user }: InputBoxProps) {
+function InputBox({ position, user }: InputBoxProps) {
+    const { msgSocket } = useConn();
     const className = `grid grid-cols-5 pl-5 lg:pl-8 ${position}`;
     const [message, setMessage] = useState<string>("");
     const [name, setName] = useState<string>("");
@@ -51,12 +50,8 @@ function InputBox({ position, msgWs, callWs, user }: InputBoxProps) {
             return;
         }
 
-        if (
-            user &&
-            msgWs.current &&
-            msgWs.current.readyState === WebSocket.OPEN
-        ) {
-            msgWs.current.send(
+        if (user && msgSocket && msgSocket.readyState === WebSocket.OPEN) {
+            msgSocket.send(
                 JSON.stringify({
                     from: user,
                     content: message,
@@ -72,17 +67,13 @@ function InputBox({ position, msgWs, callWs, user }: InputBoxProps) {
         setMessage("");
     };
 
-    const handleCallClick = async (
-        event: React.MouseEvent<HTMLButtonElement>
-    ) => {
+    const handleCallClick = (event: React.MouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
 
         if (!checkLoginState() || !checkNameState()) {
             return;
         }
 
-        await msgWs.current?.close();
-        await callWs.current?.close();
         navigate(`/call?user=${name}`);
         setName("");
     };

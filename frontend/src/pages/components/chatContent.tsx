@@ -1,12 +1,11 @@
 import ContentBox from "./contentBox";
 import InputBox from "./inputBox";
 import styles from "./styles/chatContent";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Cookies from "js-cookie";
-import { backendUrl, backendWsUrl } from "./apiEndpoint";
 import { useNavigate } from "react-router-dom";
 import { CallMessage } from "../call";
-
+import { useConn } from "../../useConn";
 export interface Message {
     username: string;
     content: string;
@@ -15,9 +14,8 @@ export interface Message {
 }
 
 function ChatContent() {
-    const msgSocketRef = useRef<WebSocket | null>(null);
-    const callSocketRef = useRef<WebSocket | null>(null);
-    const naviagate = useNavigate();
+    const { msgSocket, callSocket, peerConnection } = useConn();
+    const navigate = useNavigate();
 
     const [messages, setMessages] = useState<Message[]>([
         {
@@ -31,55 +29,62 @@ function ChatContent() {
 
     useEffect(() => {
         if (user) {
-            msgSocketRef.current = new WebSocket(
-                `${backendWsUrl}/ws?user=${encodeURIComponent(user)}`
-            );
+            if (msgSocket == null || callSocket == null) return;
 
-            // Initialize WebSocket connection
-            callSocketRef.current = new WebSocket(
-                `${backendWsUrl}/call?user=${encodeURIComponent(user)}`
-            );
-
-            callSocketRef.current.onclose = () => {
-                console.log("Call WebSocket closed");
-            };
-
-            msgSocketRef.current.onmessage = (event) => {
+            msgSocket.onmessage = (event) => {
                 const message = JSON.parse(event.data) as Message;
                 setMessages((prevMessages) => [...prevMessages, message]);
             };
 
-            callSocketRef.current.onmessage = async (event) => {
+            callSocket.onmessage = async (event) => {
                 const message = JSON.parse(event.data) as CallMessage;
-                if (message.type === "offer") {
-                    await callSocketRef.current?.close();
-                    console.log(message.payload);
-                    naviagate(
-                        `/acceptCall?offer=${encodeURIComponent(
+
+                switch (message.type) {
+                    case "offer": {
+                        peerConnection
+                            ?.setRemoteDescription(JSON.parse(message.payload))
+                            .then(() => {
+                                return peerConnection?.createAnswer();
+                            })
+                            .then((answer) => {
+                                peerConnection?.setLocalDescription(answer);
+                                callSocket.send(
+                                    JSON.stringify({
+                                        from: user,
+                                        to: message.from,
+                                        type: "answer",
+                                        payload: JSON.stringify(answer),
+                                    })
+                                );
+                            })
+                            .then(() => {
+                                navigate(
+                                    `/acceptCall?user=${encodeURIComponent(
+                                        message.from
+                                    )}`
+                                );
+                            });
+                        break;
+                    }
+                    case "candidates": {
+                        const candidate = JSON.parse(
                             message.payload
-                        )}&user=${encodeURIComponent(message.from)}`
-                    );
+                        ) as RTCIceCandidate;
+                        await peerConnection?.addIceCandidate(candidate);
+                        break;
+                    }
+                    case "end": {
+                        break;
+                    }
                 }
             };
-
-            // Clean up on component unmount
-            return () => {
-                fetch(`${backendUrl}/logout?user=${encodeURIComponent(user)}`);
-                msgSocketRef.current?.close();
-                callSocketRef.current?.close();
-            };
         }
-    }, [user]);
+    }, [user, msgSocket, callSocket, peerConnection, navigate]);
 
     return (
         <div className={styles.container}>
             <ContentBox position="row-start-1 row-span-7" messages={messages} />
-            <InputBox
-                position="row-start-8 row-end-9"
-                msgWs={msgSocketRef}
-                callWs={callSocketRef}
-                user={user}
-            />
+            <InputBox position="row-start-8 row-end-9" user={user} />
         </div>
     );
 }
